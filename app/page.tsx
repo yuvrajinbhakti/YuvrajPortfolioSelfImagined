@@ -1,6 +1,7 @@
 // import Image from "next/image";
 
 import InteractiveBackground from "./_components/InteractiveComponents";
+import OceanShader from "./_components/OceanShader";
 
 // export default function Home() {
 //   return (
@@ -101,7 +102,11 @@ import InteractiveBackground from "./_components/InteractiveComponents";
 //     </div>
 //   );
 // }
-
 export default function Home() {
-  return <InteractiveBackground />;
+  return (
+    <>
+      <OceanShader />
+      {/* <InteractiveBackground />; */}
+    </>
+  );
 }
