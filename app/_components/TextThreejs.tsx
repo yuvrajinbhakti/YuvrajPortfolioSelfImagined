@@ -1,17 +1,20 @@
 "use client";
-import { useEffect } from "react";
+
+import { useEffect, useRef } from "react";
 import * as THREE from "three";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { FontLoader } from "three/examples/jsm/loaders/FontLoader.js";
-import { SVGLoader } from "three/examples/jsm/loaders/SVGLoader.js";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
-const ThreeJSTextExample = () => {
+const ThreeJsTextExample = () => {
+  const containerRef = useRef(null);
+
   useEffect(() => {
-    let camera: THREE.PerspectiveCamera,
-      scene: THREE.Scene,
-      renderer: THREE.WebGLRenderer;
+    if (!containerRef.current) return;
 
-    const init = () => {
+    let camera, scene, renderer;
+    let frameId;
+
+    const init = async () => {
+      // Setup camera
       camera = new THREE.PerspectiveCamera(
         45,
         window.innerWidth / window.innerHeight,
@@ -20,89 +23,70 @@ const ThreeJSTextExample = () => {
       );
       camera.position.set(0, -400, 600);
 
+      // Setup scene
       scene = new THREE.Scene();
       scene.background = new THREE.Color(0xf0f0f0);
 
-      const loader = new FontLoader();
-      loader.load("fonts/helvetiker_regular.typeface.json", function (font) {
-        const color = new THREE.Color(0x006699);
-
-        const matDark = new THREE.MeshBasicMaterial({
-          color: color,
-          side: THREE.DoubleSide,
-        });
-
-        const matLite = new THREE.MeshBasicMaterial({
-          color: color,
-          transparent: true,
-          opacity: 0.4,
-          side: THREE.DoubleSide,
-        });
-
-        const message = "   Three.js\nStroke text.";
-        const shapes = font.generateShapes(message, 100);
-
-        const geometry = new THREE.ShapeGeometry(shapes);
-        geometry.computeBoundingBox();
-
-        const xMid =
-          -0.5 * (geometry.boundingBox.max.x - geometry.boundingBox.min.x);
-        geometry.translate(xMid, 0, 0);
-
-        // Make shape (N.B. edge view not visible)
-        const text = new THREE.Mesh(geometry, matLite);
-        text.position.z = -150;
-        scene.add(text);
-
-        // Make line shape (N.B. edge view remains visible)
-        const holeShapes: THREE.Shape[] = [];
-
-        for (let i = 0; i < shapes.length; i++) {
-          const shape = shapes[i];
-
-          if (shape.holes && shape.holes.length > 0) {
-            for (let j = 0; j < shape.holes.length; j++) {
-              const hole = shape.holes[j];
-              holeShapes.push(hole);
-            }
-          }
-        }
-
-        shapes.push(...holeShapes);
-
-        const style = SVGLoader.getStrokeStyle(5, color.getStyle());
-
-        const strokeText = new THREE.Group();
-
-        for (let i = 0; i < shapes.length; i++) {
-          const shape = shapes[i];
-          const points = shape.getPoints();
-          const geometry = SVGLoader.pointsToStroke(points, style);
-          geometry.translate(xMid, 0, 0);
-
-          const strokeMesh = new THREE.Mesh(geometry, matDark);
-          strokeText.add(strokeMesh);
-        }
-
-        scene.add(strokeText);
-        render();
-      });
-
+      // Setup renderer
       renderer = new THREE.WebGLRenderer({ antialias: true });
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.setSize(window.innerWidth, window.innerHeight);
-      document.body.appendChild(renderer.domElement);
+      containerRef.current.innerHTML = "";
+      containerRef.current.appendChild(renderer.domElement);
 
+      // Setup controls
       const controls = new OrbitControls(camera, renderer.domElement);
       controls.target.set(0, 0, 0);
       controls.update();
-
       controls.addEventListener("change", render);
 
-      window.addEventListener("resize", onWindowResize);
+      // Create text using basic geometry instead of loading font
+      const textMaterial = new THREE.MeshBasicMaterial({
+        color: 0x006699,
+        transparent: true,
+        opacity: 0.4,
+        side: THREE.DoubleSide,
+      });
+
+      const outlineMaterial = new THREE.LineBasicMaterial({
+        color: 0x006699,
+        side: THREE.DoubleSide,
+      });
+
+      // Create simple text geometry using boxes
+      const textGroup = new THREE.Group();
+
+      const createLetter = (x, width = 40, height = 100) => {
+        const geometry = new THREE.BoxGeometry(width, height, 10);
+        const mesh = new THREE.Mesh(geometry, textMaterial);
+        mesh.position.x = x;
+
+        // Create outline
+        const edges = new THREE.EdgesGeometry(geometry);
+        const outline = new THREE.LineSegments(edges, outlineMaterial);
+        outline.position.x = x;
+
+        textGroup.add(mesh);
+        textGroup.add(outline);
+      };
+
+      // Create "THREE.JS" text
+      const spacing = 50;
+      let currentX = -150;
+
+      ["T", "H", "R", "E", "E", ".", "J", "S"].forEach((letter, i) => {
+        createLetter(currentX);
+        currentX += spacing;
+      });
+
+      textGroup.position.z = -150;
+      scene.add(textGroup);
+
+      render();
     };
 
     const onWindowResize = () => {
+      if (!camera || !renderer) return;
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
@@ -110,26 +94,47 @@ const ThreeJSTextExample = () => {
     };
 
     const render = () => {
+      if (!renderer || !scene || !camera) return;
       renderer.render(scene, camera);
     };
 
+    // Initialize scene
     init();
 
+    // Add window resize listener
+    window.addEventListener("resize", onWindowResize);
+
+    // Cleanup function
     return () => {
       window.removeEventListener("resize", onWindowResize);
+      if (frameId) {
+        cancelAnimationFrame(frameId);
+      }
+      if (renderer) {
+        renderer.dispose();
+      }
+      if (containerRef.current) {
+        containerRef.current.innerHTML = "";
+      }
     };
   }, []);
 
   return (
-    <div>
-      <div id="info">
-        <a href="https://threejs.org" target="_blank" rel="noopener">
+    <div className="relative w-full h-screen">
+      <div ref={containerRef} className="w-full h-full" />
+      <div className="absolute top-0 left-0 p-4 text-gray-600">
+        <a
+          href="https://threejs.org"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-blue-500 hover:text-blue-700"
+        >
           three.js
         </a>{" "}
-        webgl - simple text from json fonts
+        webgl - simple text example
       </div>
     </div>
   );
 };
 
-export default ThreeJSTextExample;
+export default ThreeJsTextExample;
