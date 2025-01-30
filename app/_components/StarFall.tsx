@@ -1,22 +1,26 @@
 "use client";
-import React, { useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 import * as THREE from "three";
 
-const ThreeAnimation = () => {
+const ShaderAnimation = () => {
   const containerRef = useRef(null);
 
   useEffect(() => {
-    let container, camera, scene, renderer, uniforms;
-    let texture, rtTexture, rtTexture2;
+    let camera, scene, renderer;
+    let uniforms;
     const divisor = 1 / 8;
     const textureFraction = 1 / 1;
     let w = window.innerWidth;
     let h = window.innerHeight;
-    const newmouse = { x: 0, y: 0 };
+    let rtTexture, rtTexture2;
+    const newmouse = {
+      x: 0,
+      y: 0,
+    };
 
     const vertexShader = `
       void main() {
-          gl_Position = vec4(position, 1.0);
+          gl_Position = vec4( position, 1.0 );
       }
     `;
 
@@ -38,21 +42,22 @@ const ThreeAnimation = () => {
       
       mat2 rotate2d(float _angle){
           return mat2(cos(_angle),sin(_angle),
-                      -sin(_angle),cos(_angle));
+                    -sin(_angle),cos(_angle));
       }
       
-      vec2 hash2(vec2 p) {
-        vec2 o = texture2D(u_noise, (p+0.5)/256.0, -100.0).xy;
+      vec2 hash2(vec2 p)
+      {
+        vec2 o = texture2D( u_noise, (p+0.5)/256.0, -100.0 ).xy;
         return o;
       }
       
-      vec3 hsb2rgb(in vec3 c){
+      vec3 hsb2rgb( in vec3 c ){
         vec3 rgb = clamp(abs(mod(c.x*6.0+vec3(0.0,4.0,2.0),
                                  6.0)-3.0)-1.0,
                          0.0,
                          1.0 );
         rgb = rgb*rgb*(3.0-2.0*rgb);
-        return c.z * mix(vec3(1.0), rgb, c.y);
+        return c.z * mix( vec3(1.0), rgb, c.y);
       }
       
       vec3 domain(vec2 z){
@@ -97,13 +102,13 @@ const ThreeAnimation = () => {
       
       void main() {
         vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / min(u_resolution.y, u_resolution.x);
-        vec2 sample = gl_FragCoord.xy / u_resolution.xy;
-            
-        vec4 fragcolour;
+        vec2 texCoord = gl_FragCoord.xy / u_resolution.xy;
         
-        if(u_renderpass == true) {
+        vec4 fragcolour = vec4(0.0);
+        
+        if(u_renderpass) {
           if(u_frame > 5) {
-            fragcolour = texture2D(u_buffer, sample) * 6.;
+            fragcolour = texture2D(u_buffer, texCoord) * 6.;
           }
           uv *= rotate2d(u_time*.5);
           
@@ -115,7 +120,7 @@ const ThreeAnimation = () => {
           }
           fragcolour *= 1./opacity_sum;
         } else {
-          fragcolour = texture2D(u_buffer, sample) * 5.;
+          fragcolour = texture2D(u_buffer, texCoord) * 5.;
         }
         
         gl_FragColor = fragcolour;
@@ -123,12 +128,9 @@ const ThreeAnimation = () => {
     `;
 
     const init = () => {
-      container = containerRef.current;
       camera = new THREE.Camera();
       camera.position.z = 1;
       scene = new THREE.Scene();
-
-      // Updated from PlaneBufferGeometry to PlaneGeometry
       const geometry = new THREE.PlaneGeometry(2, 2);
 
       rtTexture = new THREE.WebGLRenderTarget(
@@ -143,37 +145,47 @@ const ThreeAnimation = () => {
       uniforms = {
         u_time: { type: "f", value: 1.0 },
         u_resolution: { type: "v2", value: new THREE.Vector2() },
-        u_noise: { type: "t", value: texture },
+        u_noise: { type: "t", value: null },
         u_buffer: { type: "t", value: rtTexture.texture },
-        u_mouse: { type: "v3", value: new THREE.Vector3() },
+        u_mouse: { type: "v4", value: new THREE.Vector4() }, // Changed from Vector3 to Vector4
         u_frame: { type: "i", value: -1 },
         u_renderpass: { type: "b", value: false },
       };
 
       const material = new THREE.ShaderMaterial({
-        uniforms: uniforms,
-        vertexShader: vertexShader,
-        fragmentShader: fragmentShader,
+        uniforms,
+        vertexShader,
+        fragmentShader,
       });
-
       material.extensions.derivatives = true;
+
       const mesh = new THREE.Mesh(geometry, material);
       scene.add(mesh);
 
-      renderer = new THREE.WebGLRenderer({
-        antialias: true,
-        powerPreference: "high-performance",
-      });
+      renderer = new THREE.WebGLRenderer();
       renderer.setPixelRatio(window.devicePixelRatio);
-      container.appendChild(renderer.domElement);
+      containerRef.current?.appendChild(renderer.domElement);
+
+      const loader = new THREE.TextureLoader();
+      loader.setCrossOrigin("anonymous");
+      loader.load(
+        "https://s3-us-west-2.amazonaws.com/s.cdpn.io/982762/noise.png",
+        (texture) => {
+          texture.wrapS = THREE.RepeatWrapping;
+          texture.wrapT = THREE.RepeatWrapping;
+          texture.minFilter = THREE.LinearFilter;
+          uniforms.u_noise.value = texture;
+        }
+      );
 
       onWindowResize();
       window.addEventListener("resize", onWindowResize, false);
       setupEventListeners();
+      animate();
     };
 
     const setupEventListeners = () => {
-      document.addEventListener("pointermove", (e) => {
+      const handlePointerMove = (e) => {
         const ratio = window.innerHeight / window.innerWidth;
         if (window.innerHeight > window.innerWidth) {
           newmouse.x = (e.pageX - window.innerWidth / 2) / window.innerWidth;
@@ -188,35 +200,43 @@ const ThreeAnimation = () => {
             ((e.pageY - window.innerHeight / 2) / window.innerHeight) * -1;
         }
         e.preventDefault();
-      });
+      };
 
-      document.addEventListener("pointerdown", (e) => {
+      const handlePointerDown = (e) => {
         if (e.button === 0) {
           uniforms.u_mouse.value.z = 1;
         } else if (e.button === 2) {
           uniforms.u_mouse.value.w = 1;
         }
         e.preventDefault();
-      });
+      };
 
-      document.addEventListener("pointerup", (e) => {
+      const handlePointerUp = (e) => {
         if (e.button === 0) {
           uniforms.u_mouse.value.z = 0;
         } else if (e.button === 2) {
           uniforms.u_mouse.value.w = 0;
         }
         e.preventDefault();
-      });
+      };
+
+      document.addEventListener("pointermove", handlePointerMove);
+      document.addEventListener("pointerdown", handlePointerDown);
+      document.addEventListener("pointerup", handlePointerUp);
+
+      return () => {
+        document.removeEventListener("pointermove", handlePointerMove);
+        document.removeEventListener("pointerdown", handlePointerDown);
+        document.removeEventListener("pointerup", handlePointerUp);
+      };
     };
 
     const onWindowResize = () => {
       w = window.innerWidth;
       h = window.innerHeight;
-
       renderer.setSize(w, h);
       uniforms.u_resolution.value.x = renderer.domElement.width;
       uniforms.u_resolution.value.y = renderer.domElement.height;
-
       uniforms.u_frame.value = 0;
 
       rtTexture = new THREE.WebGLRenderTarget(
@@ -234,11 +254,10 @@ const ThreeAnimation = () => {
       uniforms.u_resolution.value.x = w * textureFraction;
       uniforms.u_resolution.value.y = h * textureFraction;
       uniforms.u_buffer.value = rtTexture2.texture;
-
       uniforms.u_renderpass.value = true;
 
       renderer.setRenderTarget(rtTexture);
-      renderer.render(scene, camera); // Removed extra parameters
+      renderer.render(scene, camera);
 
       const buffer = rtTexture;
       rtTexture = rtTexture2;
@@ -251,14 +270,11 @@ const ThreeAnimation = () => {
 
     const render = (delta) => {
       uniforms.u_frame.value++;
-
       uniforms.u_mouse.value.x +=
         (newmouse.x - uniforms.u_mouse.value.x) * divisor;
       uniforms.u_mouse.value.y +=
         (newmouse.y - uniforms.u_mouse.value.y) * divisor;
-
       uniforms.u_time.value = delta * 0.0005;
-      renderer.setRenderTarget(null); // Added this line
       renderer.render(scene, camera);
       renderTexture();
     };
@@ -268,44 +284,20 @@ const ThreeAnimation = () => {
       render(delta);
     };
 
-    // Load texture and initialize
-    const loader = new THREE.TextureLoader();
-    loader.setCrossOrigin("anonymous");
-    loader.load(
-      "https://s3-us-west-2.amazonaws.com/s.cdpn.io/982762/noise.png",
-      (tex) => {
-        texture = tex;
-        texture.wrapS = THREE.RepeatWrapping;
-        texture.wrapT = THREE.RepeatWrapping;
-        texture.minFilter = THREE.LinearFilter;
-        init();
-        animate();
-      }
-    );
+    init();
 
-    // Cleanup
     return () => {
-      window.removeEventListener("resize", onWindowResize);
       if (renderer) {
         renderer.dispose();
       }
-      if (container && renderer.domElement) {
-        container.removeChild(renderer.domElement);
+      if (containerRef.current) {
+        containerRef.current.innerHTML = "";
       }
+      window.removeEventListener("resize", onWindowResize);
     };
   }, []);
 
-  return (
-    <div
-      ref={containerRef}
-      style={{
-        position: "fixed",
-        touchAction: "none",
-        width: "100%",
-        height: "100%",
-      }}
-    />
-  );
+  return <div ref={containerRef} className="w-full h-full" />;
 };
 
-export default ThreeAnimation;
+export default ShaderAnimation;
